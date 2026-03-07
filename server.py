@@ -855,7 +855,7 @@ if __name__ == "__main__":
         "--port", type=int, default=PORT, help="服务监听端口 (默认: 8899)"
     )
     parser.add_argument(
-        "--host", type=str, default=HOST, help="服务监听地址 (默认: 0.0.0.0)"
+        "--host", type=str, default=HOST, help="服务监听地址 (默认: 127.0.0.1)"
     )
     args = parser.parse_args()
     main(port=args.port, host=args.host)
