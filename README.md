@@ -9,7 +9,7 @@
 - ❌ "Provider is not valid"
 - ❌ "Models could not be fetched with the provided account details"
 
-这个代理服务让你可以在 Xcode 中正常使用智谱 GLM-4.6、GLM-4.7、GLM-5、Kimi 和 DeepSeek 模型。
+这个代理服务让你可以在 Xcode 中正常使用智谱 GLM-4.6、GLM-4.7、GLM-5、千问 Qwen、Kimi 和 DeepSeek 模型。
 
 ## 使用方法
 
@@ -28,6 +28,9 @@ KIMI_API_KEY=你的Kimi API密钥
 
 # DeepSeek API 密钥 (从 https://platform.deepseek.com/ 获取)
 DEEPSEEK_API_KEY=你的DeepSeek API密钥
+
+# 千问 API 密钥 (从 https://help.aliyun.com/zh/dashscope/ 获取)
+QWEN_API_KEY=你的千问API密钥
 ```
 
 #### 2. 启动服务
@@ -52,13 +55,15 @@ chmod +x start.sh   # 首次使用时赋予执行权限
 
 - **端口**: `8899`
 
-现在可以在 Xcode 中正常使用智谱 GLM-4.6、GLM-4.7、GLM-5、Kimi 和 DeepSeek 模型了！
+现在可以在 Xcode 中正常使用智谱 GLM-4.6、GLM-4.7、GLM-5、千问 Qwen、Kimi 和 DeepSeek 模型了！
 
 ## 支持的模型
 
 - `glm-4.6` - 智谱 AI GLM-4.6
 - `glm-4.7` - 智谱 AI GLM-4.7
 - `glm-5` - 智谱 AI GLM-5
+- `qwen3.5-plus` - 千问 Qwen 3.5 Plus
+- `qwen3-coder-next` - 千问 Qwen 3 Coder Next
 - `kimi-k2-0905-preview` - Kimi K2
 - `deepseek-reasoner` - DeepSeek Reasoner (思维模式)
 - `deepseek-chat` - DeepSeek Chat (对话模式)
@@ -80,3 +85,4 @@ A: 需要 Python 3.10+，依赖已列在 pyproject.toml 中,需要 python 包管
 - [Kimi](https://www.kimi.com/)
 - [DeepSeek](https://www.deepseek.com/)
 - [ZhipuAI](https://bigmodel.cn/)
+- [Qwen](https://tongyi.aliyun.com/)
