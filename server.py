@@ -1,6 +1,6 @@
 """
 Xcode AI Proxy - Python 版本
-使用 FastAPI 重写的 AI 代理服务，支持智谱 GLM-4.6、Kimi 和 DeepSeek 模型
+使用 FastAPI 重写的 AI 代理服务，支持智谱 GLM、千问 Qwen、Kimi 和 DeepSeek 模型
 根据环境变量动态加载可用模型
 """
 
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # 服务器配置
 PORT = int(os.getenv("PORT", 3000))
-HOST = os.getenv("HOST", "0.0.0.0")
+HOST = os.getenv("HOST", "127.0.0.1")
 
 # 重试配置
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", 3))
@@ -45,9 +45,10 @@ REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 60000)) / 1000  # 转换为�
 
 # 检查必需的环境变量
 REQUIRED_ENV_VARS = {
-    "ZHIPU_API_KEY": "GLM-4.6 模型",
+    "ZHIPU_API_KEY": "GLM 模型",
     "KIMI_API_KEY": "Kimi 模型",
     "DEEPSEEK_API_KEY": "DeepSeek 模型",
+    "QWEN_API_KEY": "Qwen 模型",
 }
 
 # 检查所有环境变量，但只给出警告而不退出
@@ -60,12 +61,28 @@ API_CONFIGS = {}
 
 # 如果有智谱 API 密钥，则添加智谱模型配置
 if os.getenv("ZHIPU_API_KEY"):
-    API_CONFIGS["glm-4.6"] = {
-        "api_url": "https://open.bigmodel.cn/api/paas/v4",
-        "api_key": os.getenv("ZHIPU_API_KEY"),
-        "type": "zhipu",
-        "name": "GLM-4.6",
-    }
+    API_CONFIGS.update(
+        {
+            "glm-4.6": {
+                "api_url": "https://open.bigmodel.cn/api/paas/v4",
+                "api_key": os.getenv("ZHIPU_API_KEY"),
+                "type": "zhipu",
+                "name": "GLM-4.6",
+            },
+            "glm-4.7": {
+                "api_url": "https://open.bigmodel.cn/api/paas/v4",
+                "api_key": os.getenv("ZHIPU_API_KEY"),
+                "type": "zhipu",
+                "name": "GLM-4.7",
+            },
+            "glm-5": {
+                "api_url": "https://open.bigmodel.cn/api/paas/v4",
+                "api_key": os.getenv("ZHIPU_API_KEY"),
+                "type": "zhipu",
+                "name": "GLM-5",
+            },
+        }
+    )
 
 # 如果有 Kimi API 密钥，则添加 Kimi 模型配置
 if os.getenv("KIMI_API_KEY"):
@@ -95,6 +112,25 @@ if os.getenv("DEEPSEEK_API_KEY"):
         }
     )
 
+# 如果有千问 API 密钥，则添加千问模型配置
+if os.getenv("QWEN_API_KEY"):
+    API_CONFIGS.update(
+        {
+            "qwen3.5-plus": {
+                "api_url": "https://coding.dashscope.aliyuncs.com/v1",
+                "api_key": os.getenv("QWEN_API_KEY"),
+                "type": "qwen",
+                "name": "Qwen 3.5 Plus",
+            },
+            "qwen3-coder-next": {
+                "api_url": "https://coding.dashscope.aliyuncs.com/v1",
+                "api_key": os.getenv("QWEN_API_KEY"),
+                "type": "qwen",
+                "name": "Qwen 3 Coder Next",
+            },
+        }
+    )
+
 if not API_CONFIGS:
     logger.error("❌ 未配置任何模型API密钥，请至少设置一个环境变量:")
     for env_var, model_name in REQUIRED_ENV_VARS.items():
@@ -109,7 +145,7 @@ for model_id, config in API_CONFIGS.items():
 # FastAPI 应用初始化
 app = FastAPI(
     title="Xcode AI Proxy",
-    description="AI 代理服务，支持智谱 GLM-4.6、Kimi 和 DeepSeek 模型",
+    description="AI 代理服务，支持智谱 GLM、千问 Qwen、Kimi 和 DeepSeek 模型",
     version="1.0.0",
 )
 
@@ -225,15 +261,16 @@ async def list_models():
 # 智谱 API 处理
 async def handle_zhipu_request(request_body: dict) -> Union[dict, StreamingResponse]:
     """处理智谱 API 请求"""
-    logger.info("📡 路由到智谱API")
+    model = request_body.get("model", "glm-4.6")
+    logger.info(f"📡 路由到智谱API (模型: {model})")
 
     async def make_request():
-        config = API_CONFIGS["glm-4.6"]
+        config = API_CONFIGS[model]
 
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             response = await client.post(
                 f"{config['api_url']}/chat/completions",
-                json={**request_body, "model": "glm-4.6"},
+                json={**request_body, "model": model},
                 headers={
                     "Authorization": f"Bearer {config['api_key']}",
                     "Content-Type": "application/json",
@@ -404,7 +441,9 @@ async def parse_sse_stream(resp: httpx.Response) -> str:
                         if isinstance(content_value, str):
                             fragments.append(content_value)
                         else:
-                            fragments.append(json.dumps(content_value, ensure_ascii=False))
+                            fragments.append(
+                                json.dumps(content_value, ensure_ascii=False)
+                            )
                 else:
                     fragments.append(str(payload))
 
@@ -429,10 +468,10 @@ def process_parsed_stream_cache(parsed_stream_cache: str) -> str:
 async def handle_deepseek_request(request_body: dict) -> Union[dict, StreamingResponse]:
     """处理 DeepSeek API 请求"""
     logger.info("📡 路由到DeepSeek API")
-    
-    request_body['messages'] = sanitize_messages(request_body['messages'])
-    logger.info('🧹 在 handle_proxy 中已清洗 messages')
-    
+
+    request_body["messages"] = sanitize_messages(request_body["messages"])
+    logger.info("🧹 在 handle_proxy 中已清洗 messages")
+
     model = request_body.get("model", "deepseek-reasoner")
     logger.info(f"🔍 使用 DeepSeek 模型: {model}")
 
@@ -570,6 +609,52 @@ async def handle_deepseek_request(request_body: dict) -> Union[dict, StreamingRe
         return response.json()  # 代理处理函数
 
 
+# 千问 API 处理
+async def handle_qwen_request(request_body: dict) -> Union[dict, StreamingResponse]:
+    """处理千问 API 请求"""
+    model = request_body.get("model", "qwen3.5-plus")
+    logger.info(f"📡 路由到千问API (模型: {model})")
+
+    async def make_request():
+        config = API_CONFIGS[model]
+
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            response = await client.post(
+                f"{config['api_url']}/chat/completions",
+                json={**request_body, "model": model},
+                headers={
+                    "Authorization": f"Bearer {config['api_key']}",
+                    "Content-Type": "application/json",
+                },
+            )
+            # 非 2xx 状态会触发 raise_for_status() 抛出 HTTPStatusError
+            response.raise_for_status()
+            return response
+
+    response = await with_retry(make_request)
+    logger.info(f"✅ 千问API响应状态: {response.status_code}")
+
+    if request_body.get("stream", False):
+        logger.info("🔄 返回千问流式响应")
+
+        # 直接返回原始流式响应，不修改任何内容
+        response_headers = dict(response.headers)
+        # 移除可能引起问题的头部
+        response_headers.pop("content-length", None)
+        response_headers.pop("content-encoding", None)
+
+        async def generate():
+            async for chunk in response.aiter_bytes(chunk_size=8192):
+                yield chunk
+
+        return StreamingResponse(
+            generate(), status_code=response.status_code, headers=response_headers
+        )
+    else:
+        logger.info("📦 返回千问非流式响应")
+        return response.json()
+
+
 async def handle_proxy(request_data: dict):
     """处理代理请求"""
     try:
@@ -596,6 +681,8 @@ async def handle_proxy(request_data: dict):
             return await handle_kimi_request(request_data)
         elif config["type"] == "deepseek":
             return await handle_deepseek_request(request_data)
+        elif config["type"] == "qwen":
+            return await handle_qwen_request(request_data)
         else:
             raise HTTPException(
                 status_code=500,
@@ -757,9 +844,7 @@ def main(port=PORT, host=HOST):
     logger.info("   ANTHROPIC_AUTH_TOKEN: any-string-works")
     logger.info("🔧 功能: 智谱/Kimi/DeepSeek代理，流式响应，动态配置，智能重试")
 
-    uvicorn.run(
-        "server:app", host=host, port=port, reload=False, log_level="info"
-    )
+    uvicorn.run("server:app", host=host, port=port, reload=False, log_level="info")
 
 
 if __name__ == "__main__":
@@ -770,7 +855,7 @@ if __name__ == "__main__":
         "--port", type=int, default=PORT, help="服务监听端口 (默认: 8899)"
     )
     parser.add_argument(
-        "--host", type=str, default=HOST, help="服务监听地址 (默认: 0.0.0.0)"
+        "--host", type=str, default=HOST, help="服务监听地址 (默认: 127.0.0.1)"
     )
     args = parser.parse_args()
     main(port=args.port, host=args.host)

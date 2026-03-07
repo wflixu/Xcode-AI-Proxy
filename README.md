@@ -9,7 +9,7 @@
 - ❌ "Provider is not valid"
 - ❌ "Models could not be fetched with the provided account details"
 
-这个代理服务让你可以在 Xcode 中正常使用智谱 GLM-4.6、Kimi 和 DeepSeek 模型。
+这个代理服务让你可以在 Xcode 中正常使用智谱 GLM、千问 Qwen、Kimi 和 DeepSeek 模型。
 
 ## 使用方法
 
@@ -28,18 +28,43 @@ KIMI_API_KEY=你的Kimi API密钥
 
 # DeepSeek API 密钥 (从 https://platform.deepseek.com/ 获取)
 DEEPSEEK_API_KEY=你的DeepSeek API密钥
+
+# 千问 API 密钥 (从 https://help.aliyun.com/zh/dashscope/ 获取)
+QWEN_API_KEY=你的千问API密钥
 ```
 
 #### 2. 启动服务
 
-项目已经提供 `start.sh` 启动脚本，会自动完成依赖安装、虚拟环境配置并启动服务。
+**方式一：使用启动脚本（推荐）**
+
+项目提供了 `start.sh` 启动脚本，会自动完成依赖安装、虚拟环境配置并启动服务：
 
 ```bash
 chmod +x start.sh   # 首次使用时赋予执行权限
 ./start.sh
 ```
 
-服务启动在 `http://localhost:8899`
+**方式二：手动启动**
+
+如果你想手动控制依赖安装和启动过程：
+
+```bash
+# 1. 安装 uv 包管理工具（如果还没安装）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. 创建虚拟环境并安装依赖
+uv venv
+source .venv/bin/activate
+uv sync
+
+# 3. 启动服务
+python3 server.py
+
+# 或者指定端口和主机
+python3 server.py --port 3000 --host 127.0.0.1
+```
+
+服务启动后默认监听 `http://127.0.0.1:8899`（仅本机访问，更安全）
 
 ### 3. 配置 Xcode
 
@@ -52,11 +77,15 @@ chmod +x start.sh   # 首次使用时赋予执行权限
 
 - **端口**: `8899`
 
-现在可以在 Xcode 中正常使用智谱 GLM-4.6、Kimi 和 DeepSeek 模型了！
+现在可以在 Xcode 中正常使用智谱 GLM-4.6、GLM-4.7、GLM-5、千问 Qwen、Kimi 和 DeepSeek 模型了！
 
 ## 支持的模型
 
 - `glm-4.6` - 智谱 AI GLM-4.6
+- `glm-4.7` - 智谱 AI GLM-4.7
+- `glm-5` - 智谱 AI GLM-5
+- `qwen3.5-plus` - 千问 Qwen 3.5 Plus
+- `qwen3-coder-next` - 千问 Qwen 3 Coder Next
 - `kimi-k2-0905-preview` - Kimi K2
 - `deepseek-reasoner` - DeepSeek Reasoner (思维模式)
 - `deepseek-chat` - DeepSeek Chat (对话模式)
@@ -78,3 +107,4 @@ A: 需要 Python 3.10+，依赖已列在 pyproject.toml 中,需要 python 包管
 - [Kimi](https://www.kimi.com/)
 - [DeepSeek](https://www.deepseek.com/)
 - [ZhipuAI](https://bigmodel.cn/)
+- [Qwen](https://tongyi.aliyun.com/)
