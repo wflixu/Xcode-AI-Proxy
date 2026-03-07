@@ -9,7 +9,7 @@
 - ❌ "Provider is not valid"
 - ❌ "Models could not be fetched with the provided account details"
 
-这个代理服务让你可以在 Xcode 中正常使用智谱 GLM-4.6、Kimi 和 DeepSeek 模型。
+这个代理服务让你可以在 Xcode 中正常使用智谱 GLM-4.6、GLM-4.7、GLM-5、Kimi 和 DeepSeek 模型。
 
 ## 使用方法
 
@@ -52,11 +52,13 @@ chmod +x start.sh   # 首次使用时赋予执行权限
 
 - **端口**: `8899`
 
-现在可以在 Xcode 中正常使用智谱 GLM-4.6、Kimi 和 DeepSeek 模型了！
+现在可以在 Xcode 中正常使用智谱 GLM-4.6、GLM-4.7、GLM-5、Kimi 和 DeepSeek 模型了！
 
 ## 支持的模型
 
 - `glm-4.6` - 智谱 AI GLM-4.6
+- `glm-4.7` - 智谱 AI GLM-4.7
+- `glm-5` - 智谱 AI GLM-5
 - `kimi-k2-0905-preview` - Kimi K2
 - `deepseek-reasoner` - DeepSeek Reasoner (思维模式)
 - `deepseek-chat` - DeepSeek Chat (对话模式)

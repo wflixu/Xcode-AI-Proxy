@@ -60,12 +60,26 @@ API_CONFIGS = {}
 
 # 如果有智谱 API 密钥，则添加智谱模型配置
 if os.getenv("ZHIPU_API_KEY"):
-    API_CONFIGS["glm-4.6"] = {
-        "api_url": "https://open.bigmodel.cn/api/paas/v4",
-        "api_key": os.getenv("ZHIPU_API_KEY"),
-        "type": "zhipu",
-        "name": "GLM-4.6",
-    }
+    API_CONFIGS.update({
+        "glm-4.6": {
+            "api_url": "https://open.bigmodel.cn/api/paas/v4",
+            "api_key": os.getenv("ZHIPU_API_KEY"),
+            "type": "zhipu",
+            "name": "GLM-4.6",
+        },
+        "glm-4.7": {
+            "api_url": "https://open.bigmodel.cn/api/paas/v4",
+            "api_key": os.getenv("ZHIPU_API_KEY"),
+            "type": "zhipu",
+            "name": "GLM-4.7",
+        },
+        "glm-5": {
+            "api_url": "https://open.bigmodel.cn/api/paas/v4",
+            "api_key": os.getenv("ZHIPU_API_KEY"),
+            "type": "zhipu",
+            "name": "GLM-5",
+        },
+    })
 
 # 如果有 Kimi API 密钥，则添加 Kimi 模型配置
 if os.getenv("KIMI_API_KEY"):
@@ -225,15 +239,16 @@ async def list_models():
 # 智谱 API 处理
 async def handle_zhipu_request(request_body: dict) -> Union[dict, StreamingResponse]:
     """处理智谱 API 请求"""
-    logger.info("📡 路由到智谱API")
+    model = request_body.get("model", "glm-4.6")
+    logger.info(f"📡 路由到智谱API (模型: {model})")
 
     async def make_request():
-        config = API_CONFIGS["glm-4.6"]
+        config = API_CONFIGS[model]
 
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             response = await client.post(
                 f"{config['api_url']}/chat/completions",
-                json={**request_body, "model": "glm-4.6"},
+                json={**request_body, "model": model},
                 headers={
                     "Authorization": f"Bearer {config['api_key']}",
                     "Content-Type": "application/json",
