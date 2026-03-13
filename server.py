@@ -8,18 +8,14 @@ import os
 import sys
 import asyncio
 import logging
-import time
-import uuid
-from datetime import datetime
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Union
 import json
 import argparse
 
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 import uvicorn
 
@@ -98,13 +94,13 @@ if os.getenv("DEEPSEEK_API_KEY"):
     API_CONFIGS.update(
         {
             "deepseek-reasoner": {
-                "api_url": "https://api.deepseek.com",
+                "api_url": "https://api.deepseek.com/v1",
                 "api_key": os.getenv("DEEPSEEK_API_KEY"),
                 "type": "deepseek",
                 "name": "DeepSeek Reasoner",
             },
             "deepseek-chat": {
-                "api_url": "https://api.deepseek.com",
+                "api_url": "https://api.deepseek.com/v1",
                 "api_key": os.getenv("DEEPSEEK_API_KEY"),
                 "type": "deepseek",
                 "name": "DeepSeek Chat",
@@ -159,16 +155,6 @@ app.add_middleware(
 )
 
 
-# 请求模型
-class ChatCompletionRequest(BaseModel):
-    model: str
-    messages: list
-    stream: bool = False
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    top_p: Optional[float] = None
-
-
 # 通用重试装饰器
 async def with_retry(operation, max_retries=MAX_RETRIES, base_delay=RETRY_DELAY):
     """通用异步重试函数"""
@@ -193,49 +179,6 @@ async def with_retry(operation, max_retries=MAX_RETRIES, base_delay=RETRY_DELAY)
         raise last_error
     else:
         raise RuntimeError("Operation failed after retries with no exception captured")
-
-
-# 中间件：请求日志
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    start_time = datetime.now()
-    logger.info(f"{start_time.isoformat()} - {request.method} {request.url.path}")
-
-    # 记录请求头
-    logger.info(f"请求头: {dict(request.headers)}")
-
-    response = await call_next(request)
-
-    process_time = (datetime.now() - start_time).total_seconds()
-    logger.info(f"请求处理时间: {process_time:.3f}秒")
-    logger.info(f"响应状态码: {response.status_code}")
-
-    return response
-
-
-# 健康检查
-@app.get("/health")
-async def health_check():
-    """健康检查接口"""
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
-
-
-# 调试端点
-@app.get("/debug/config")
-async def debug_config():
-    """调试配置信息"""
-    return {
-        "available_models": list(API_CONFIGS.keys()),
-        "config_summary": {
-            model_id: {
-                "name": config["name"],
-                "type": config["type"],
-                "api_url": config["api_url"],
-                "has_api_key": bool(config.get("api_key")),
-            }
-            for model_id, config in API_CONFIGS.items()
-        },
-    }
 
 
 # 模型列表
@@ -349,185 +292,24 @@ async def handle_kimi_request(request_body: dict) -> Union[dict, StreamingRespon
         return response.json()
 
 
-# 新增：清洗 messages，确保每条 message['content'] 为字符串
-def sanitize_messages(messages):
-    """
-    确保 messages 是 list，每个 message 为 dict 且 message['content'] 为字符串。
-    - 如果 message 是字符串 -> 转为 {'role':'user','content': str}
-    - 如果 content 是 list -> 将元素 join（非字符串元素 json.dumps）
-    - 其他非字符串 -> json.dumps
-    """
-    import json
-
-    if not isinstance(messages, list):
-        logger.warning("messages 不是列表，已尝试转换为单项列表")
-        return [{"role": "user", "content": str(messages)}]
-
-    sanitized = []
-    for idx, m in enumerate(messages):
-        # 字符串形式的 message，视为 user
-        if isinstance(m, str):
-            sanitized.append({"role": "user", "content": m})
-            continue
-
-        if not isinstance(m, dict):
-            # 无法识别的类型，序列化为字符串
-            sanitized.append(
-                {"role": "user", "content": json.dumps(m, ensure_ascii=False)}
-            )
-            continue
-
-        content = m.get("content", "")
-        if isinstance(content, str):
-            s = content
-        elif isinstance(content, list):
-            parts = []
-            for part in content:
-                if isinstance(part, str):
-                    parts.append(part)
-                else:
-                    parts.append(json.dumps(part, ensure_ascii=False))
-            s = "\n".join(parts)
-        else:
-            s = json.dumps(content, ensure_ascii=False)
-
-        new_m = {**m, "content": s}
-        sanitized.append(new_m)
-
-    return sanitized
-
-
-async def parse_sse_stream(resp: httpx.Response) -> str:
-    """解析 response 的 SSE 流，并且把解析的结果暂时存到本地字符串中"""
-    buffer = ""
-    fragments = []
-
-    async for chunk in resp.aiter_text(chunk_size=8192):
-        buffer += chunk
-
-        while "\n\n" in buffer:
-            event, buffer = buffer.split("\n\n", 1)
-            if not event.strip():
-                continue
-
-            for line in event.splitlines():
-                if not line.startswith("data:"):
-                    continue
-
-                data = line[5:].strip()
-                if not data:
-                    continue
-                if data == "[DONE]":
-                    return "".join(fragments)
-
-                try:
-                    payload = json.loads(data)
-                except json.JSONDecodeError:
-                    fragments.append(data)
-                    continue
-
-                if isinstance(payload, dict):
-                    choices = payload.get("choices") or []
-                    for choice in choices:
-                        delta = choice.get("delta") or {}
-                        message = choice.get("message") or {}
-                        for block in (delta, message):
-                            content_piece = block.get("content")
-                            if content_piece:
-                                fragments.append(content_piece)
-
-                    if not choices and payload.get("content"):
-                        content_value = payload["content"]
-                        if isinstance(content_value, str):
-                            fragments.append(content_value)
-                        else:
-                            fragments.append(
-                                json.dumps(content_value, ensure_ascii=False)
-                            )
-                else:
-                    fragments.append(str(payload))
-
-    return "".join(fragments)
-
-
-def process_parsed_stream_cache(parsed_stream_cache: str) -> str:
-    """对 parsed_stream_cache 进行处理"""
-    try:
-        payload = json.loads(parsed_stream_cache)
-    except json.JSONDecodeError:
-        return parsed_stream_cache
-
-    try:
-        json.loads(payload.get("text", ""))
-        return process_parsed_stream_cache(payload.get("text", ""))
-    except (json.JSONDecodeError, AttributeError):
-        return payload.get("text", "")
-
-
 # DeepSeek API 处理
 async def handle_deepseek_request(request_body: dict) -> Union[dict, StreamingResponse]:
-    """处理 DeepSeek API 请求"""
-    logger.info("📡 路由到DeepSeek API")
-
-    request_body["messages"] = sanitize_messages(request_body["messages"])
-    logger.info("🧹 在 handle_proxy 中已清洗 messages")
-
+    """处理 DeepSeek API 请求（OpenAI 兼容模式）"""
     model = request_body.get("model", "deepseek-reasoner")
-    logger.info(f"🔍 使用 DeepSeek 模型: {model}")
+    logger.info(f"📡 路由到DeepSeek API (模型: {model})")
 
     async def make_request():
         config = API_CONFIGS[model]
 
-        # 过滤 DeepSeek API 支持的参数
-        supported_params = {
-            "model",
-            "messages",
-            "stream",
-            "temperature",
-            "max_tokens",
-            "top_p",
-            "frequency_penalty",
-            "presence_penalty",
-            "stop",
-        }
-
-        # 构建清理后的请求数据
-        request_data = {
-            key: value for key, value in request_body.items() if key in supported_params
-        }
-
-        # 确保模型名称正确
-        request_data["model"] = model
-
-        # 移除空的数组参数
-        if "tools" in request_body and not request_body["tools"]:
-            logger.info("🧹 移除空的 tools 参数")
-
-        # 记录过滤的参数
-        filtered_params = set(request_body.keys()) - set(request_data.keys())
-        if filtered_params:
-            logger.info(f"🧹 已过滤不支持的参数: {filtered_params}")
-
-        logger.info(f'📤 发送到 DeepSeek API: {config["api_url"]}/chat/completions')
-        logger.info(f"📋 请求参数: {list(request_data.keys())}")
-
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             response = await client.post(
                 f"{config['api_url']}/chat/completions",
-                json=request_data,
+                json={**request_body, "model": model},
                 headers={
                     "Authorization": f"Bearer {config['api_key']}",
                     "Content-Type": "application/json",
                 },
             )
-
-            # 记录响应状态和错误信息
-            logger.info(f"📥 DeepSeek API 响应状态: {response.status_code}")
-            if response.status_code != 200:
-                response_text = response.text
-                logger.error(f"❌ DeepSeek API 错误响应: {response_text}")
-
-            # 非 2xx 状态会触发 raise_for_status() 抛出 HTTPStatusError
             response.raise_for_status()
             return response
 
@@ -537,76 +319,20 @@ async def handle_deepseek_request(request_body: dict) -> Union[dict, StreamingRe
     if request_body.get("stream", False):
         logger.info("🔄 返回DeepSeek流式响应")
 
-        # 直接返回原始流式响应，不修改任何内容
         response_headers = dict(response.headers)
-        # 移除可能引起问题的头部
         response_headers.pop("content-length", None)
         response_headers.pop("content-encoding", None)
-        response_headers["content-type"] = "text/event-stream; charset=utf-8"
-
-        # 解析 response 的 SSE 流，并且把解析的结果暂时存到本地字符串中
-        parsed_stream_cache = await parse_sse_stream(response)
-        logger.info(f"🧩 DeepSeek流式缓存解析结果: {parsed_stream_cache!r}")
-
-        # 对 parsed_stream_cache 进行处理。
-        parsed_stream_cache = process_parsed_stream_cache(parsed_stream_cache)
-        logger.info(f"🧩 DeepSeek流式缓存处理后结果: {parsed_stream_cache!r}")
 
         async def generate():
-            # 将解析后的文本拆分为多个 SSE 块并逐个推送
-            chunk_size = 1024
-            text = parsed_stream_cache or ""
-            stream_id = str(uuid.uuid4())
-            system_fingerprint = "fp_proxy_stream"
-            for index, start in enumerate(range(0, len(text), chunk_size)):
-                segment = text[start : start + chunk_size]
-                payload = {
-                    "id": stream_id,
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": model,
-                    "system_fingerprint": system_fingerprint,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": segment},
-                            "logprobs": None,
-                            "finish_reason": None,
-                        }
-                    ],
-                }
-                sse_chunk = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                logger.debug(f"🔀 发送SSE块(index={index}): {sse_chunk!r}")
-                yield sse_chunk.encode("utf-8")
-                await asyncio.sleep(0)
-
-            # 发送结束块，指示完成
-            finish_payload = {
-                "id": stream_id,
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": model,
-                "system_fingerprint": system_fingerprint,
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {},
-                        "logprobs": None,
-                        "finish_reason": "stop",
-                    }
-                ],
-            }
-            finish_chunk = f"data: {json.dumps(finish_payload, ensure_ascii=False)}\n\n"
-            logger.debug(f"🏁 发送SSE结束块: {finish_chunk!r}")
-            yield finish_chunk.encode("utf-8")
-            yield b"data: [DONE]\n\n"
+            async for chunk in response.aiter_bytes(chunk_size=8192):
+                yield chunk
 
         return StreamingResponse(
             generate(), status_code=response.status_code, headers=response_headers
         )
     else:
         logger.info("📦 返回DeepSeek非流式响应")
-        return response.json()  # 代理处理函数
+        return response.json()
 
 
 # 千问 API 处理
@@ -766,50 +492,6 @@ async def chat_completions(request: Request):
         raise
     except Exception as e:
         logger.error(f"解析请求体失败: {str(e)}")
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": {
-                    "message": f"Invalid request body: {str(e)}",
-                    "type": "invalid_request_error",
-                }
-            },
-        )
-
-
-@app.post("/api/v1/chat/completions")
-async def api_chat_completions(request: Request):
-    """备用聊天完成接口"""
-    try:
-        body = await request.json()
-        logger.info(f"API接口请求体: {body}")
-        return await handle_proxy(body)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"API接口解析请求体失败: {str(e)}")
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": {
-                    "message": f"Invalid request body: {str(e)}",
-                    "type": "invalid_request_error",
-                }
-            },
-        )
-
-
-@app.post("/v1/messages")
-async def messages(request: Request):
-    """消息接口"""
-    try:
-        body = await request.json()
-        logger.info(f"消息接口请求体: {body}")
-        return await handle_proxy(body)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"消息接口解析请求体失败: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail={
